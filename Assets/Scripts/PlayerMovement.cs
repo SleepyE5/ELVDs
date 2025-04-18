@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public class NarrativeFirstPersonMovement : MonoBehaviour
+public class FirstPersonMovement : MonoBehaviour
 {
     [Header("Movement Settings")]
     public float moveSpeed = 3f;
