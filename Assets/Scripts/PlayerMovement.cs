@@ -1,68 +1,59 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
-using TMPro;
 
-public class PlayerMovementTutorial : MonoBehaviour
+public class NarrativeFirstPersonMovement : MonoBehaviour
 {
-    [Header("Movement")] public float moveSpeed;
-    public float groundDrag;
-    public float jumpForce;
-    public float jumpCooldown;
-    public float airMultiplier;
-    public float sprintSpeed;
-    public float walkSpeed;
-    bool readyToJump;
+    [Header("Movement Settings")]
+    public float moveSpeed = 3f;
+    public float fastWalkSpeed = 3f;
+    public float rotationSpeed = 2f;
+    public float groundDrag = 5f;
+    public float movementSmoothing = 0.1f;
 
-    [Header("Keybindings")] public KeyCode jumpKey = KeyCode.Space;
-    public KeyCode sprintKey = KeyCode.LeftShift;
-    public KeyCode crouchKey = KeyCode.LeftControl;
+    [Header("References")]
+    public Transform playerCamera;
+    public float cameraSensitivity = 100f;
+    public LayerMask groundLayer;
 
-    [Header("Ground Check")] public float playerHeight;
-    public LayerMask whatIsGround;
-    bool grounded;
+    [Header("Tracking Metrics")]
+    public float currentSpeed; // Current speed of the player
+    public float totalDistanceTraveled; // Total distance traveled
+    public float timeSpentMoving; // Time spent moving
 
-    public Transform orientation;
-
-    float horizontalInput;
-    float verticalInput;
-
-    Vector3 moveDirection;
-
-    Rigidbody rb;
-    CapsuleCollider playerCollider;
-
-    [Header("Crouching")] public float crouchSpeed;
-    public float crouchHeight;
-    private float originalHeight;
-    private Vector3 originalScale;
+    private Rigidbody rb;
+    private float horizontalInput;
+    private float verticalInput;
+    private float mouseX;
+    private float mouseY;
+    private float xRotation = 0f;
+    private Vector3 currentVelocity;
+    private Vector3 lastPosition;
 
     private void Start()
     {
         rb = GetComponent<Rigidbody>();
         rb.freezeRotation = true;
+        Cursor.lockState = CursorLockMode.Locked;
 
-        playerCollider = GetComponent<CapsuleCollider>();
-        originalHeight = playerCollider.height; // Store the original height
-        originalScale = transform.localScale; // Store the original scale
-        readyToJump = true;
+        lastPosition = transform.position; // Initialize last position
     }
 
     private void Update()
     {
-        // ground check
-        grounded = Physics.Raycast(transform.position, Vector3.down, playerHeight * 0.5f + 0.3f, whatIsGround);
+        GetInput();
+        RotateCamera();
+        ApplyDrag();
 
-        MyInput();
-        SpeedControl();
-        Sprint(); // Call the Sprint method here
-        Crouch(); // Call the Crouch method here
+        // Adjust movement speed based on Shift key
+        moveSpeed = Input.GetKey(KeyCode.LeftShift) ? fastWalkSpeed : 3f;
 
-        // handle drag
-        if (grounded)
-            rb.linearDamping = groundDrag;
-        else
-            rb.linearDamping = 0;
+        // Update tracking metrics
+        currentSpeed = rb.velocity.magnitude; // Calculate current speed
+        if (currentSpeed > 0.1f) // Consider movement only if speed is significant
+        {
+            totalDistanceTraveled += Vector3.Distance(transform.position, lastPosition);
+            timeSpentMoving += Time.deltaTime;
+        }
+        lastPosition = transform.position; // Update last position
     }
 
     private void FixedUpdate()
@@ -70,86 +61,39 @@ public class PlayerMovementTutorial : MonoBehaviour
         MovePlayer();
     }
 
-    private void MyInput()
+    private void GetInput()
     {
-        horizontalInput = Input.GetAxisRaw("Horizontal");
-        verticalInput = Input.GetAxisRaw("Vertical");
-
-        // when to jump
-        if (Input.GetKey(jumpKey) && readyToJump && grounded)
-        {
-            readyToJump = false;
-
-            Jump();
-
-            Invoke(nameof(ResetJump), jumpCooldown);
-        }
+        horizontalInput = Input.GetAxis("Horizontal");
+        verticalInput = Input.GetAxis("Vertical");
+        mouseX = Input.GetAxis("Mouse X") * cameraSensitivity * Time.deltaTime;
+        mouseY = Input.GetAxis("Mouse Y") * cameraSensitivity * Time.deltaTime;
     }
 
     private void MovePlayer()
     {
-        // calculate movement direction
-        moveDirection = orientation.forward * verticalInput + orientation.right * horizontalInput;
-
-        // on ground
-        if (grounded)
-            rb.AddForce(moveDirection.normalized * (moveSpeed * 10f), ForceMode.Force);
-
-        // in air
-        else if (!grounded)
-            rb.AddForce(moveDirection.normalized * (moveSpeed * 10f * airMultiplier), ForceMode.Force);
+        Vector3 moveDirection = transform.forward * verticalInput + transform.right * horizontalInput;
+        Vector3 targetVelocity = moveDirection.normalized * moveSpeed;
+        currentVelocity = Vector3.Lerp(currentVelocity, targetVelocity, movementSmoothing);
+        rb.velocity = new Vector3(currentVelocity.x, rb.velocity.y, currentVelocity.z);
     }
 
-    private void SpeedControl()
+    private void RotateCamera()
     {
-        Vector3 flatVel = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
+        xRotation -= mouseY;
+        xRotation = Mathf.Clamp(xRotation, -90f, 90f);
 
-        // limit velocity if needed
-        if (flatVel.magnitude > moveSpeed)
-        {
-            Vector3 limitedVel = flatVel.normalized * moveSpeed;
-            rb.linearVelocity = new Vector3(limitedVel.x, rb.linearVelocity.y, limitedVel.z);
-        }
+        Quaternion targetRotation = Quaternion.Euler(xRotation, 0f, 0f);
+        playerCamera.localRotation = Quaternion.Slerp(playerCamera.localRotation, targetRotation, rotationSpeed * Time.deltaTime);
+
+        transform.Rotate(Vector3.up * mouseX);
     }
 
-    private void Jump()
+    private void ApplyDrag()
     {
-        // reset y velocity
-        rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
-
-        rb.AddForce(transform.up * jumpForce, ForceMode.Impulse);
-    }
-
-    private void ResetJump()
-    {
-        readyToJump = true;
-    }
-
-    private void Sprint()
-    {
-        if (Input.GetKey(sprintKey))
+        if (horizontalInput == 0 && verticalInput == 0)
         {
-            moveSpeed = sprintSpeed;
-        }
-        else
-        {
-            moveSpeed = walkSpeed;
-        }
-    }
-
-    private void Crouch()
-    {
-        if (Input.GetKeyDown(crouchKey))
-        {
-            playerCollider.height = crouchHeight;
-            transform.localScale = new Vector3(originalScale.x, originalScale.y * (crouchHeight / originalHeight), originalScale.z);
-            moveSpeed = crouchSpeed;
-        }
-        else if (Input.GetKeyUp(crouchKey))
-        {
-            playerCollider.height = originalHeight;
-            transform.localScale = originalScale;
-            moveSpeed = walkSpeed;
+            Vector3 flatVelocity = new Vector3(rb.velocity.x, 0f, rb.velocity.z);
+            rb.velocity = Vector3.Lerp(rb.velocity, new Vector3(0f, rb.velocity.y, 0f), groundDrag * Time.deltaTime);
         }
     }
 }
